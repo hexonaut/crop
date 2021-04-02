@@ -10,7 +10,17 @@ interface MasterChefLike {
     function poolInfo(uint256 _pid) external view returns (address, uint256, uint256, uint256);
     function poolLength() external view returns (uint256);
     function sushi() external view returns (address);
+    function migrator() external view returns (address);
+    function owner() external view returns (address);
     function emergencyWithdraw(uint256 _pid) external;
+    function transferOwnership(address newOwner) external;
+    function setMigrator(uint256 _pid) external;
+}
+
+interface TimelockLike {
+    function queuedTransactions(bytes32) external view returns (bool);
+    function queueTransaction(address,uint256,string memory,bytes memory,uint256) external;
+    function delay() external view returns (uint256);
 }
 
 contract SushiJoin is CropJoin {
@@ -33,6 +43,8 @@ contract SushiJoin is CropJoin {
     }
 
     MasterChefLike  immutable public masterchef;
+    address         immutable public initialMigrator;
+    TimelockLike    immutable public timelockOwner;
     uint256         immutable public pid;
     bool            public live = true;
 
@@ -40,16 +52,30 @@ contract SushiJoin is CropJoin {
     event Rely(address indexed usr);
     event Deny(address indexed usr);
 
-    constructor(address vat_, bytes32 ilk_, address gem_, address bonus_, address masterchef_, uint256 pid_)
+    constructor(
+        address vat_,
+        bytes32 ilk_,
+        address gem_,
+        address bonus_,
+        address masterchef_,
+        uint256 pid_,
+        address initialMigrator_,
+        address timelockOwner_
+    )
         public
         CropJoin(vat_, ilk_, gem_, bonus_)
     {
+        // Sanity checks
         (address lpToken, uint256 allocPoint,,) = MasterChefLike(masterchef_).poolInfo(pid_);
         require(lpToken == gem_, "SushiJoin/pid-does-not-match-gem");
         require(MasterChefLike(masterchef_).sushi() == bonus_, "SushiJoin/bonus-does-not-match-sushi");
         require(allocPoint > 0, "SushiJoin/pool-not-active");
+        require(MasterChefLike(masterchef_).migrator() == initialMigrator_, "SushiJoin/migrator-mismatch");
+        require(MasterChefLike(masterchef_).owner() == timelockOwner_, "SushiJoin/owner-mismatch");
 
         masterchef = MasterChefLike(masterchef_);
+        initialMigrator = initialMigrator_;
+        timelockOwner = TimelockLike(timelockOwner_);
         pid = pid_;
 
         ERC20(gem_).approve(masterchef_, uint256(-1));
@@ -83,7 +109,46 @@ contract SushiJoin is CropJoin {
         }
         super.flee();
     }
-    function cage() external auth {
+    function cage() external {
+        require(live, "SushiJoin/not-live");
+
+        // Allow caging if any assumptions change
+        require(
+            wards[msg.sender] == 1 ||
+            masterchef.migrator() != initialMigrator ||
+            masterchef.owner() != address(timelockOwner)
+        , "SushiJoin/not-authorized");
+
+        _cage();
+    }
+    function cage(address target, uint256 value, string memory signature, bytes memory data, uint256 eta) external {
+        require(live, "SushiJoin/not-live");
+
+        // Verify the queued transaction is targetting one of the dangerous functions on Masterchef
+        bytes memory callData;
+        if (bytes(signature).length == 0) {
+            callData = data;
+        } else {
+            callData = abi.encodePacked(bytes4(keccak256(bytes(signature))), data);
+        }
+        require(callData.length >= 4, "SushiJoin/invalid-calldata");
+        bytes4 selector = bytes4(
+            (uint32(uint8(callData[0])) << 24) |
+            (uint32(uint8(callData[1])) << 16) |
+            (uint32(uint8(callData[2])) << 8) |
+            (uint32(uint8(callData[3])))
+        );
+        require(target == address(masterchef), "SushiJoin/wrong-target");
+        require(
+            selector == MasterChefLike.transferOwnership.selector ||
+            selector == MasterChefLike.setMigrator.selector
+        , "SushiJoin/wrong-function");
+        bytes32 txHash = keccak256(abi.encode(target, value, signature, data, eta));
+        require(timelockOwner.queuedTransactions(txHash), "SushiJoin/invalid-hash");
+
+        _cage();
+    }
+    function _cage() internal {
         masterchef.emergencyWithdraw(pid);
         live = false;
     }

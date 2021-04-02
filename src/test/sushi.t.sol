@@ -103,6 +103,12 @@ contract Usr {
     function hope(address usr) public {
         vat.hope(usr);
     }
+    function cage() public {
+        adapter.cage();
+    }
+    function cage(address target, uint256 value, string memory signature, bytes memory data, uint256 eta) public {
+        adapter.cage(target, value, signature, data, eta);
+    }
 
 }
 
@@ -115,6 +121,8 @@ contract SushiTest is TestBase {
     VatAbstract vat;
     bytes32 ilk = "SUSHIWBTCETH-A";
     SushiJoin join;
+    address migrator;
+    TimelockLike timelock;
 
     Usr user1;
     Usr user2;
@@ -127,6 +135,8 @@ contract SushiTest is TestBase {
         pair = SushiLPLike(0xCEfF51756c56CeFFCA006cD410B03FFC46dd3a58);
         sushi = ERC20(0x6B3595068778DD592e39A122f4f5a5cF09C90fE2);
         masterchef = MasterChefLike(0xc2EdaD668740f1aA35E4D8f227fB8E17dcA888Cd);
+        migrator = 0xb0BF8BcCDb1617084Ebc220CB1dDBaA183f5C858;
+        timelock = TimelockLike(0x9a8541Ddf3a932a9A922B607e9CF7301f1d47bD1);
 
         // Give this contract admin access on the vat
         hevm.store(
@@ -149,7 +159,7 @@ contract SushiTest is TestBase {
         }
         assertTrue(pid != uint(-1));
 
-        join = new SushiJoin(address(vat), ilk, address(pair), address(sushi), address(masterchef), pid);
+        join = new SushiJoin(address(vat), ilk, address(pair), address(sushi), address(masterchef), pid, migrator, address(timelock));
         vat.rely(address(join));
         user1 = new Usr(hevm, join, pair);
         user2 = new Usr(hevm, join, pair);
@@ -546,6 +556,119 @@ contract SushiTest is TestBase {
                 user.withdrawMasterchef(amount);
             }
         }
+    }
+
+    function testFail_cage_no_auth() public {
+        user1.cage();
+    }
+
+    function test_cage_owner_changes() public {
+        // user2 attempts to puts themself in control of the pool
+        hevm.store(
+            address(masterchef),
+            bytes32(uint256(0)),
+            bytes32(uint256(address(user2)))
+        );
+
+        // Anyone can cage
+        user1.cage();
+        assertTrue(!join.live());
+    }
+
+    function test_cage_migrator_changes() public {
+        // Migrator is changed to some other contract
+        hevm.store(
+            address(masterchef),
+            bytes32(uint256(5)),
+            bytes32(uint256(address(user2)))
+        );
+
+        // Anyone can cage
+        user1.cage();
+        assertTrue(!join.live());
+    }
+
+    function test_cage_queued_change1() public {
+        // Set this contract as admin of the timelock
+        hevm.store(
+            address(timelock),
+            bytes32(uint256(0)),
+            bytes32(uint256(address(this)))
+        );
+
+        // Queue up a malicious transaction
+        timelock.queueTransaction(
+            address(masterchef),
+            0,
+            "",
+            abi.encodeWithSelector(MasterChefLike.setMigrator.selector, [address(user2)]),
+            block.timestamp + timelock.delay()
+        );
+
+        // Anyone can cage
+        user1.cage(
+            address(masterchef),
+            0,
+            "",
+            abi.encodeWithSelector(MasterChefLike.setMigrator.selector, [address(user2)]),
+            block.timestamp + timelock.delay()
+        );
+        assertTrue(!join.live());
+    }
+
+    function test_cage_queued_change2() public {
+        // Set this contract as admin of the timelock
+        hevm.store(
+            address(timelock),
+            bytes32(uint256(0)),
+            bytes32(uint256(address(this)))
+        );
+
+        // Queue up a malicious transaction
+        timelock.queueTransaction(
+            address(masterchef),
+            0,
+            "transferOwnership(address)",
+            abi.encode(address(user2)),
+            block.timestamp + timelock.delay()
+        );
+
+        // Anyone can cage
+        user1.cage(
+            address(masterchef),
+            0,
+            "transferOwnership(address)",
+            abi.encode(address(user2)),
+            block.timestamp + timelock.delay()
+        );
+        assertTrue(!join.live());
+    }
+
+    function testFail_cage_queued_irrelevant_change() public {
+        // Set this contract as admin of the timelock
+        hevm.store(
+            address(timelock),
+            bytes32(uint256(0)),
+            bytes32(uint256(address(this)))
+        );
+
+        // Queue up a safe transaction such as adjusting the pool allocation amount
+        timelock.queueTransaction(
+            address(masterchef),
+            0,
+            "set(uint256,uint256,bool)",
+            abi.encode(join.pid(), uint256(0), false),
+            block.timestamp + timelock.delay()
+        );
+
+        // Should not be able to cage
+        user1.cage(
+            address(masterchef),
+            0,
+            "set(uint256,uint256,bool)",
+            abi.encode(join.pid(), uint256(0), false),
+            block.timestamp + timelock.delay()
+        );
     }
     
 }
