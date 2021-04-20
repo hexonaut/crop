@@ -41,14 +41,16 @@ contract SushiJoin is CropJoin {
     }
 
     MasterChefLike  immutable public masterchef;
-    address         immutable public initialMigrator;
-    TimelockLike    immutable public timelockOwner;
-    uint256         immutable public pid;
+    address                   public initialMigrator;
+    TimelockLike              public timelockOwner;
+    uint256                   public pid;
     bool                      public live;
 
     // --- Events ---
     event Rely(address indexed usr);
     event Deny(address indexed usr);
+    event File(bytes32 indexed what, uint256 data);
+    event File(bytes32 indexed what, address data);
 
     /**
         @param vat_                 MCD_VAT DSS core accounting module
@@ -89,6 +91,19 @@ contract SushiJoin is CropJoin {
         ERC20(gem_).approve(masterchef_, uint256(-1));
         wards[msg.sender] = 1;
         live = true;
+    }
+
+    // --- Administration ---
+    function file(bytes32 what, uint256 data) external auth {
+        if (what == "pid") pid = data;
+        else revert("SushiJoin/file-unrecognized-param");
+        emit File(what, data);
+    }
+    function file(bytes32 what, address data) external auth {
+        if (what == "initialMigrator") initialMigrator = data;
+        else if (what == "timelockOwner") timelockOwner = TimelockLike(data);
+        else revert("SushiJoin/file-unrecognized-param");
+        emit File(what, data);
     }
 
     function nav() public override returns (uint256) {
@@ -165,5 +180,9 @@ contract SushiJoin is CropJoin {
     function _cage() internal {
         masterchef.emergencyWithdraw(pid);
         live = false;
+    }
+    function uncage() external auth {
+        masterchef.deposit(pid, total);
+        live = true;
     }
 }

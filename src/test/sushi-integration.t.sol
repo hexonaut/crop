@@ -672,5 +672,57 @@ contract SushiIntegrationTest is TestBase {
             block.timestamp + timelock.delay()
         );
     }
+
+    function test_cage_false_positive() public {
+        doJoin(user1, user1.getLPBalance());
+        hevm.warp(now + 1 days);
+        doJoin(user2, user2.getLPBalance());
+        hevm.warp(now + 1 days);
+
+        // Set this contract as admin of the timelock
+        hevm.store(
+            address(timelock),
+            bytes32(uint256(0)),
+            bytes32(uint256(address(this)))
+        );
+
+        // Queue up a benign transaction (set the owner to the same timelock)
+        timelock.queueTransaction(
+            address(masterchef),
+            0,
+            "transferOwnership(address)",
+            abi.encode(address(timelock)),
+            block.timestamp + timelock.delay()
+        );
+
+        // Anyone can cage
+        uint256 tokensInMasterchef = pair.balanceOf(address(masterchef));
+        assertEq(pair.balanceOf(address(join)), 0);
+        user1.cage(
+            address(masterchef),
+            0,
+            "transferOwnership(address)",
+            abi.encode(address(timelock)),
+            block.timestamp + timelock.delay()
+        );
+        assertTrue(!join.live());
+        assertEq(pair.balanceOf(address(join)), join.total());
+        assertEq(pair.balanceOf(address(masterchef)), tokensInMasterchef - join.total());
+
+        // User can still exit
+        doExit(user1, user1.getLPBalance());
+
+        hevm.warp(now + 3 days);
+
+        // Governance later decides to re-activate the adapter
+        join.uncage();
+        assertTrue(join.live());
+        assertEq(pair.balanceOf(address(join)), 0);
+        assertEq(pair.balanceOf(address(masterchef)), tokensInMasterchef);
+
+        // Users can join/exit freely again
+        doJoin(user1, user1.getLPBalance());
+        doExit(user1, user1.getLPBalance());
+    }
     
 }
