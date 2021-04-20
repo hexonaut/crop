@@ -106,6 +106,7 @@ contract SushiJoin is CropJoin {
         emit File(what, data);
     }
 
+    // Ignore gems that have been directly transferred
     function nav() public override returns (uint256) {
         return total;
     }
