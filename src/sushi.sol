@@ -151,7 +151,7 @@ contract SushiJoin is CropJoin {
 
         _cage();
     }
-    function cage(address target, uint256 value, string memory signature, bytes memory data, uint256 eta) external {
+    function cage(uint256 value, string memory signature, bytes memory data, uint256 eta) external {
         require(live, "SushiJoin/not-live");
 
         // Verify the queued transaction is targetting one of the dangerous functions on Masterchef
@@ -168,12 +168,11 @@ contract SushiJoin is CropJoin {
             (uint32(uint8(callData[2])) << 8) |
             (uint32(uint8(callData[3])))
         );
-        require(target == address(masterchef), "SushiJoin/wrong-target");
         require(
             selector == MasterChefLike.transferOwnership.selector ||
             selector == MasterChefLike.setMigrator.selector
         , "SushiJoin/wrong-function");
-        bytes32 txHash = keccak256(abi.encode(target, value, signature, data, eta));
+        bytes32 txHash = keccak256(abi.encode(masterchef, value, signature, data, eta));
         require(timelockOwner.queuedTransactions(txHash), "SushiJoin/invalid-hash");
 
         _cage();

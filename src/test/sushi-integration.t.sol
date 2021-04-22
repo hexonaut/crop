@@ -106,8 +106,8 @@ contract Usr {
     function cage() public {
         adapter.cage();
     }
-    function cage(address target, uint256 value, string memory signature, bytes memory data, uint256 eta) public {
-        adapter.cage(target, value, signature, data, eta);
+    function cage(uint256 value, string memory signature, bytes memory data, uint256 eta) public {
+        adapter.cage(value, signature, data, eta);
     }
     function transfer(address to, uint val) public {
         pair.transfer(to, val);
@@ -633,7 +633,6 @@ contract SushiIntegrationTest is TestBase {
 
         // Anyone can cage
         user1.cage(
-            address(masterchef),
             0,
             "",
             abi.encodeWithSelector(MasterChefLike.setMigrator.selector, [address(user2)]),
@@ -661,7 +660,6 @@ contract SushiIntegrationTest is TestBase {
 
         // Anyone can cage
         user1.cage(
-            address(masterchef),
             0,
             "transferOwnership(address)",
             abi.encode(address(user2)),
@@ -689,7 +687,6 @@ contract SushiIntegrationTest is TestBase {
 
         // Should not be able to cage
         user1.cage(
-            address(masterchef),
             0,
             "set(uint256,uint256,bool)",
             abi.encode(join.pid(), uint256(0), false),
@@ -723,7 +720,6 @@ contract SushiIntegrationTest is TestBase {
         uint256 tokensInMasterchef = pair.balanceOf(address(masterchef));
         assertEq(pair.balanceOf(address(join)), 0);
         user1.cage(
-            address(masterchef),
             0,
             "transferOwnership(address)",
             abi.encode(address(timelock)),
@@ -748,5 +744,4 @@ contract SushiIntegrationTest is TestBase {
         doJoin(user1, user1.getLPBalance());
         doExit(user1, user1.getLPBalance());
     }
-    
 }
