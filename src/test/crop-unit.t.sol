@@ -458,7 +458,7 @@ contract CropUnitTest is TestBase {
         b.exit(0);
         assertEq(bonus.balanceOf(address(b)), 25e18);
 
-        // That wasn't too interesting since share started at zero.
+        // That wasn't too interesting since crops(a) started at zero.
         // Let's do some more operations with a non-zero share value.
 
         // 1/4 or 50e18 to a, 3/4 or 150e18 to b
