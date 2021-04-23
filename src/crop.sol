@@ -166,15 +166,12 @@ contract CropJoin {
         stake[src] = sub(ss, wad);
         stake[dst] = add(stake[dst], wad);
 
-        // cache initial value of crops[src] for multiple uses
-        uint256 cs = crops[src];
+        uint256 cs     = crops[src];
+        uint256 dcrops = mul(cs, wad) / ss;
 
-        // safe because sub(ss, wad) succeeded above
-        crops[src] = mul(cs, ss - wad) / ss;
-
-        // safe b/c crops[src] post-update is at most cs
-        // done this way to avoid dusty rewards accruing in the adapter
-        crops[dst] = add(crops[dst], cs - crops[src]);
+        // safe since dcrops <= crops[src]
+        crops[src] = cs - dcrops;
+        crops[dst] = add(crops[dst], dcrops);
 
         (uint256 ink,) = vat.urns(ilk, src);
         require(stake[src] >= add(vat.gem(ilk, src), ink));
