@@ -162,12 +162,19 @@ contract CropJoin {
     }
 
     function tack(address src, address dst, uint256 wad) public {
-        stake[src] = sub(stake[src], wad);
+        uint256 ss = stake[src];
+        stake[src] = sub(ss, wad);
         stake[dst] = add(stake[dst], wad);
 
-        uint256 _crop = rmulup(share, wad);
-        crops[src] = sub(crops[src], _crop);
-        crops[dst] = add(crops[dst], _crop);
+        // cache initial value of crops[src] for multiple uses
+        uint256 cs = crops[src];
+
+        // safe because sub(ss, wad) succeeded above
+        crops[src] = mul(cs, ss - wad) / ss;
+
+        // safe b/c crops[src] post-update is at most cs
+        // done this way to avoid dusty rewards accruing in the adapter
+        crops[dst] = add(crops[dst], cs - crops[src]);
 
         (uint256 ink,) = vat.urns(ilk, src);
         require(stake[src] >= add(vat.gem(ilk, src), ink));
